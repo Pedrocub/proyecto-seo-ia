@@ -1,0 +1,129 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  name      String?
+  role      String   @default("admin")
+  createdAt DateTime @default(now())
+}
+
+model Lead {
+  id           String    @id @default(cuid())
+  businessName String
+  contactName  String?
+  email        String?
+  phone        String?
+  website      String?
+  address      String?
+  city         String
+  category     String    @default("medicina-estetica")
+  rating       Float?
+  reviewCount  Int?
+  mapsUrl      String?
+  mapsPlaceId  String?
+  status       String    @default("new") // new, analyzed, emailed, opened, clicked, converted
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  audit        Audit?
+  emails       Email[]
+}
+
+model Audit {
+  id        String   @id @default(cuid())
+  leadId    String   @unique
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  slug      String   @unique
+  token     String   @unique @default(cuid())
+
+  // Overall
+  overallScore  Int      @default(0)
+  overallGrade  String   @default("F")
+  totalIssues   Int      @default(0)
+  criticalCount Int      @default(0)
+  majorCount    Int      @default(0)
+  minorCount    Int      @default(0)
+  oppsCount     Int      @default(0)
+
+  // Category scores (0-100)
+  mobileScore       Int @default(0)
+  seoScore           Int @default(0)
+  llmScore           Int @default(0)
+  accessibilityScore Int @default(0)
+  performanceScore   Int @default(0)
+  contentScore       Int @default(0)
+  trustScore         Int @default(0)
+  technicalScore     Int @default(0)
+
+  // Core Web Vitals
+  lcp    Float?  // Largest Contentful Paint (seconds)
+  cls    Float?  // Cumulative Layout Shift
+  inp    Float?  // Interaction to Next Paint (ms)
+
+  // Detailed issues JSON
+  issues Json @default("[]")
+
+  // Executive summary
+  summary String? @db.Text
+
+  // Metadata
+  siteUrl     String
+  auditDate   DateTime @default(now())
+  viewCount   Int      @default(0)
+  lastViewedAt DateTime?
+  ctaClicks   Int      @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Email {
+  id        String   @id @default(cuid())
+  leadId    String
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  subject   String
+  body      String   @db.Text
+  status    String   @default("pending") // pending, sent, delivered, opened, clicked, bounced
+  sentAt    DateTime?
+  openedAt  DateTime?
+  clickedAt DateTime?
+
+  trackingId String  @unique @default(cuid())
+
+  createdAt DateTime @default(now())
+}
+
+model Campaign {
+  id          String   @id @default(cuid())
+  name        String
+  city        String
+  category    String   @default("medicina-estetica")
+  searchQuery String
+  status      String   @default("draft") // draft, scraping, analyzing, emailing, completed
+
+  leadsFound    Int @default(0)
+  leadsAnalyzed Int @default(0)
+  emailsSent    Int @default(0)
+  emailsOpened  Int @default(0)
+  ctaClicks     Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Setting {
+  id    String @id @default(cuid())
+  key   String @unique
+  value String @db.Text
+}
