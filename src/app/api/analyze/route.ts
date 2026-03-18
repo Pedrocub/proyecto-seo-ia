@@ -46,36 +46,41 @@ export async function POST(req: NextRequest) {
       }, { status: 502 });
     }
 
-    // Try to get Lighthouse data via Google PageSpeed API
+    // Get Lighthouse data via Google PageSpeed API (works without key, with rate limits)
     let lighthouseData = undefined;
     const pagespeedKey = process.env.GOOGLE_PAGESPEED_API_KEY;
 
-    if (pagespeedKey) {
-      try {
-        const psUrl = `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=${encodeURIComponent(normalizedUrl)}&key=${pagespeedKey}&strategy=mobile&category=performance&category=seo&category=accessibility&category=best-practices`;
-        const psResponse = await fetch(psUrl);
-        const psData = await psResponse.json();
-
-        if (psData.lighthouseResult) {
-          const lr = psData.lighthouseResult;
-          const categories = lr.categories || {};
-          const audits = lr.audits || {};
-
-          lighthouseData = {
-            lcp: audits["largest-contentful-paint"]?.numericValue
-              ? audits["largest-contentful-paint"].numericValue / 1000
-              : undefined,
-            cls: audits["cumulative-layout-shift"]?.numericValue ?? undefined,
-            inp: audits["interaction-to-next-paint"]?.numericValue ?? undefined,
-            performanceScore: categories.performance?.score ?? undefined,
-            seoScore: categories.seo?.score ?? undefined,
-            accessibilityScore: categories.accessibility?.score ?? undefined,
-            bestPracticesScore: categories["best-practices"]?.score ?? undefined,
-          };
-        }
-      } catch {
-        // PageSpeed failed, continue without it
+    try {
+      let psUrl = `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=${encodeURIComponent(normalizedUrl)}&strategy=mobile&category=performance&category=seo&category=accessibility&category=best-practices`;
+      if (pagespeedKey) {
+        psUrl += `&key=${pagespeedKey}`;
       }
+      const psResponse = await fetch(psUrl, { signal: AbortSignal.timeout(30000) });
+      const psData = await psResponse.json();
+
+      if (psData.lighthouseResult) {
+        const lr = psData.lighthouseResult;
+        const cats = lr.categories || {};
+        const auds = lr.audits || {};
+
+        lighthouseData = {
+          lcp: auds["largest-contentful-paint"]?.numericValue
+            ? Math.round((auds["largest-contentful-paint"].numericValue / 1000) * 10) / 10
+            : undefined,
+          cls: auds["cumulative-layout-shift"]?.numericValue != null
+            ? Math.round(auds["cumulative-layout-shift"].numericValue * 100) / 100
+            : undefined,
+          inp: auds["interaction-to-next-paint"]?.numericValue != null
+            ? Math.round(auds["interaction-to-next-paint"].numericValue)
+            : undefined,
+          performanceScore: cats.performance?.score ?? undefined,
+          seoScore: cats.seo?.score ?? undefined,
+          accessibilityScore: cats.accessibility?.score ?? undefined,
+          bestPracticesScore: cats["best-practices"]?.score ?? undefined,
+        };
+      }
+    } catch {
+      // PageSpeed failed, continue without it
     }
 
     // Run analysis
