@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { addLeads, type StoredLead } from "@/lib/storage";
 
 interface PlaceResult {
   businessName: string;
@@ -24,74 +25,81 @@ export async function POST(req: NextRequest) {
     }
 
     const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+    let results: PlaceResult[];
+    let source = "google_places";
 
     if (!apiKey) {
-      // Return demo data if no API key configured
-      return NextResponse.json({
-        success: true,
-        source: "demo",
-        results: getDemoResults(city, category || "medicina-estetica"),
-        message: "Datos de demostración. Configura GOOGLE_PLACES_API_KEY para datos reales.",
-      });
-    }
+      results = getDemoResults(city, category || "medicina-estetica");
+      source = "demo";
+    } else {
+      const searchQuery = `${query} ${city}`;
+      const textSearchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(searchQuery)}&key=${apiKey}&language=es`;
 
-    // Use Google Places Text Search API
-    const searchQuery = `${query} ${city}`;
-    const textSearchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(searchQuery)}&key=${apiKey}&language=es`;
+      const searchResponse = await fetch(textSearchUrl);
+      const searchData = await searchResponse.json();
 
-    const searchResponse = await fetch(textSearchUrl);
-    const searchData = await searchResponse.json();
+      if (searchData.status !== "OK") {
+        return NextResponse.json(
+          { error: `Google Places API error: ${searchData.status}`, details: searchData.error_message },
+          { status: 502 }
+        );
+      }
 
-    if (searchData.status !== "OK") {
-      return NextResponse.json(
-        { error: `Google Places API error: ${searchData.status}`, details: searchData.error_message },
-        { status: 502 }
-      );
-    }
-
-    // Get details for each place
-    const results: PlaceResult[] = [];
-
-    for (const place of searchData.results.slice(0, 20)) {
-      // Get place details for phone and website
-      const detailsUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${place.place_id}&fields=name,formatted_address,formatted_phone_number,website,rating,user_ratings_total,url,types&key=${apiKey}&language=es`;
-
-      try {
-        const detailsResponse = await fetch(detailsUrl);
-        const detailsData = await detailsResponse.json();
-
-        if (detailsData.status === "OK") {
-          const detail = detailsData.result;
+      results = [];
+      for (const place of searchData.results.slice(0, 20)) {
+        const detailsUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${place.place_id}&fields=name,formatted_address,formatted_phone_number,website,rating,user_ratings_total,url,types&key=${apiKey}&language=es`;
+        try {
+          const detailsResponse = await fetch(detailsUrl);
+          const detailsData = await detailsResponse.json();
+          if (detailsData.status === "OK") {
+            const detail = detailsData.result;
+            results.push({
+              businessName: detail.name || place.name,
+              address: detail.formatted_address || place.formatted_address,
+              phone: detail.formatted_phone_number,
+              website: detail.website,
+              rating: detail.rating || place.rating,
+              reviewCount: detail.user_ratings_total || place.user_ratings_total,
+              mapsUrl: detail.url,
+              placeId: place.place_id,
+              types: detail.types,
+            });
+          }
+        } catch {
           results.push({
-            businessName: detail.name || place.name,
-            address: detail.formatted_address || place.formatted_address,
-            phone: detail.formatted_phone_number,
-            website: detail.website,
-            rating: detail.rating || place.rating,
-            reviewCount: detail.user_ratings_total || place.user_ratings_total,
-            mapsUrl: detail.url,
+            businessName: place.name,
+            address: place.formatted_address,
+            rating: place.rating,
+            reviewCount: place.user_ratings_total,
             placeId: place.place_id,
-            types: detail.types,
           });
         }
-      } catch {
-        // If details fail, use basic data
-        results.push({
-          businessName: place.name,
-          address: place.formatted_address,
-          rating: place.rating,
-          reviewCount: place.user_ratings_total,
-          placeId: place.place_id,
-        });
       }
     }
 
+    // Save leads to storage
+    const newLeads: StoredLead[] = results.map((r, i) => ({
+      id: `lead-${Date.now()}-${i}`,
+      businessName: r.businessName,
+      phone: r.phone,
+      website: r.website,
+      address: r.address,
+      city,
+      category: category || "medicina-estetica",
+      rating: r.rating,
+      reviewCount: r.reviewCount,
+      status: "new",
+      createdAt: new Date().toISOString(),
+    }));
+
+    addLeads(newLeads);
+
     return NextResponse.json({
       success: true,
-      source: "google_places",
-      query: searchQuery,
+      source,
       count: results.length,
-      results,
+      leads: newLeads,
+      message: source === "demo" ? "Datos de demostración. Configura GOOGLE_PLACES_API_KEY para datos reales." : undefined,
     });
   } catch (error) {
     return NextResponse.json(
@@ -101,7 +109,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-function getDemoResults(city: string, category: string): PlaceResult[] {
+function getDemoResults(city: string, _category: string): PlaceResult[] {
   const names = [
     "Clínica Estética Luminous",
     "Centro Médico Estético Bella Donna",

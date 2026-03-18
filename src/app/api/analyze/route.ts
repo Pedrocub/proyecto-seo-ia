@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { analyzeWebsite } from "@/lib/analyzer";
+import { saveAudit, generateSlug, type StoredAudit } from "@/lib/storage";
 
 export async function POST(req: NextRequest) {
   try {
-    const { url } = await req.json();
+    const { url, businessName } = await req.json();
 
     if (!url) {
       return NextResponse.json({ error: "URL es requerida" }, { status: 400 });
@@ -85,9 +86,43 @@ export async function POST(req: NextRequest) {
       lighthouseData,
     });
 
+    // Determine business name
+    const name = businessName || extractTitleFromHTML(html) || new URL(normalizedUrl).hostname;
+    const slug = generateSlug(name);
+
+    // Save audit to storage
+    const now = new Date();
+    const dateStr = now.toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" });
+
+    const audit: StoredAudit = {
+      id: `audit-${Date.now()}`,
+      slug,
+      businessName: name,
+      siteUrl: normalizedUrl,
+      auditDate: dateStr,
+      overallScore: result.overallScore,
+      overallGrade: result.overallGrade,
+      totalIssues: result.totalIssues,
+      criticalCount: result.criticalCount,
+      majorCount: result.majorCount,
+      minorCount: result.minorCount,
+      oppsCount: result.oppsCount,
+      categories: result.categories,
+      issues: result.issues,
+      vitals: result.vitals,
+      summary: result.summary,
+      viewCount: 0,
+      ctaClicks: 0,
+      createdAt: now.toISOString(),
+    };
+
+    saveAudit(audit);
+
     return NextResponse.json({
       success: true,
       url: normalizedUrl,
+      slug,
+      auditUrl: `/audit/${slug}`,
       ...result,
     });
   } catch (error) {
@@ -96,4 +131,15 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+function extractTitleFromHTML(html: string): string | null {
+  const match = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+  if (match) {
+    let title = match[1].trim();
+    // Remove common suffixes
+    title = title.replace(/\s*[-|–—]\s*.{0,30}$/, "").trim();
+    if (title.length > 3 && title.length < 100) return title;
+  }
+  return null;
 }
