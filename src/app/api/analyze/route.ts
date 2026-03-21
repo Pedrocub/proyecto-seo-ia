@@ -46,6 +46,90 @@ export async function POST(req: NextRequest) {
       }, { status: 502 });
     }
 
+    // Fetch additional resources in parallel (non-blocking)
+    const baseUrl = new URL(normalizedUrl);
+    const origin = baseUrl.origin;
+
+    const fetchWithTimeout = async (fetchUrl: string, timeoutMs = 8000): Promise<string | null> => {
+      try {
+        const resp = await fetch(fetchUrl, {
+          signal: AbortSignal.timeout(timeoutMs),
+          headers: {
+            "User-Agent": "Mozilla/5.0 (compatible; LiderifyBot/1.0; +https://liderify.com/bot)",
+          },
+        });
+        if (resp.ok) {
+          return await resp.text();
+        }
+        return null;
+      } catch {
+        return null;
+      }
+    };
+
+    // Fetch robots.txt, sitemap.xml, llms.txt in parallel
+    const [robotsTxt, sitemapXml, llmsTxt] = await Promise.all([
+      fetchWithTimeout(`${origin}/robots.txt`),
+      fetchWithTimeout(`${origin}/sitemap.xml`),
+      fetchWithTimeout(`${origin}/llms.txt`),
+    ]);
+
+    // Extract up to 3 internal links from homepage and fetch them
+    const subpages: { url: string; html: string }[] = [];
+    try {
+      const internalLinks: string[] = [];
+      const linkRegex = /<a[^>]*href=["']([^"'#]+)["'][^>]*>/gi;
+      let linkMatch;
+      while ((linkMatch = linkRegex.exec(html)) !== null && internalLinks.length < 10) {
+        const href = linkMatch[1];
+        try {
+          const resolved = new URL(href, normalizedUrl);
+          if (
+            resolved.hostname === baseUrl.hostname &&
+            resolved.pathname !== "/" &&
+            resolved.pathname !== baseUrl.pathname &&
+            !resolved.pathname.match(/\.(jpg|jpeg|png|gif|svg|webp|pdf|zip|css|js)$/i) &&
+            !internalLinks.includes(resolved.href)
+          ) {
+            internalLinks.push(resolved.href);
+          }
+        } catch {
+          // invalid URL, skip
+        }
+      }
+
+      // Prioritize service/treatment pages, about pages, contact pages
+      const prioritized = internalLinks.sort((a, b) => {
+        const priority = (u: string) => {
+          const lower = u.toLowerCase();
+          if (lower.match(/servicio|tratamiento|procedimiento|service/)) return 0;
+          if (lower.match(/contacto|contact/)) return 1;
+          if (lower.match(/sobre|about|equipo|team/)) return 2;
+          if (lower.match(/blog|articulo|article/)) return 3;
+          return 4;
+        };
+        return priority(a) - priority(b);
+      });
+
+      // Fetch up to 3 subpages in parallel
+      const subpageUrls = prioritized.slice(0, 3);
+      const subpageResults = await Promise.all(
+        subpageUrls.map(async (spUrl) => {
+          const spHtml = await fetchWithTimeout(spUrl, 8000);
+          if (spHtml) {
+            return { url: spUrl, html: spHtml };
+          }
+          return null;
+        })
+      );
+
+      for (const sp of subpageResults) {
+        if (sp) subpages.push(sp);
+      }
+    } catch {
+      // Subpage extraction failed, continue without
+    }
+
     // Get Lighthouse data via Google PageSpeed API (works without key, with rate limits)
     let lighthouseData = undefined;
     const pagespeedKey = process.env.GOOGLE_PAGESPEED_API_KEY;
@@ -128,12 +212,16 @@ export async function POST(req: NextRequest) {
       // PageSpeed failed, continue without it
     }
 
-    // Run analysis
+    // Run analysis with all collected data
     const result = analyzeWebsite({
       url: normalizedUrl,
       html,
       headers: responseHeaders,
       lighthouseData,
+      robotsTxt,
+      sitemapXml,
+      llmsTxt,
+      subpages,
     });
 
     // Determine business name
