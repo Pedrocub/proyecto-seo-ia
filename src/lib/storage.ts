@@ -57,7 +57,7 @@ export interface StoredAudit {
     description: string;
     whyItMatters: string;
   }[];
-  vitals: { lcp: number | null; cls: number | null; inp: number | null };
+  vitals: { lcp: number | null; cls: number | null; inp: number | null; fcp: number | null; tbt: number | null; si: number | null };
   summary: string;
   viewCount: number;
   ctaClicks: number;

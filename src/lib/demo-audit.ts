@@ -503,7 +503,10 @@ export const DEMO_AUDIT: AuditReport = {
   vitals: {
     lcp: 18.1,
     cls: 0.0,
-    inp: 0,
+    inp: 350,
+    fcp: 5.8,
+    tbt: 450,
+    si: 8.2,
   },
   summary:
     "Se han identificado 58 problemas en 8 categorías que afectan significativamente la visibilidad digital de Clínica Estética Bella. Las áreas más críticas incluyen la preparación para IA (28/100), donde el sitio carece de datos estructurados esenciales para ser descubierto por asistentes de IA como ChatGPT y Gemini. La accesibilidad (48/100) y la confianza/credibilidad (50/100) también requieren atención urgente. El sitio tiene una base de contenido sólida pero necesita optimización técnica significativa para competir efectivamente en el panorama digital actual.",

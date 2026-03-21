@@ -58,21 +58,66 @@ export async function POST(req: NextRequest) {
       const psResponse = await fetch(psUrl, { signal: AbortSignal.timeout(30000) });
       const psData = await psResponse.json();
 
-      if (psData.lighthouseResult) {
-        const lr = psData.lighthouseResult;
+      if (psData.lighthouseResult || psData.loadingExperience) {
+        const lr = psData.lighthouseResult || {};
         const cats = lr.categories || {};
         const auds = lr.audits || {};
 
+        // Field data (real users) - preferred for INP
+        const fieldMetrics = psData.loadingExperience?.metrics || {};
+
+        // Lab LCP (ms -> seconds)
+        const labLcp = auds["largest-contentful-paint"]?.numericValue
+          ? Math.round((auds["largest-contentful-paint"].numericValue / 1000) * 10) / 10
+          : undefined;
+        // Field LCP (ms -> seconds)
+        const fieldLcp = fieldMetrics["LARGEST_CONTENTFUL_PAINT_MS"]?.percentile
+          ? Math.round((fieldMetrics["LARGEST_CONTENTFUL_PAINT_MS"].percentile / 1000) * 10) / 10
+          : undefined;
+
+        // Lab CLS
+        const labCls = auds["cumulative-layout-shift"]?.numericValue != null
+          ? Math.round(auds["cumulative-layout-shift"].numericValue * 100) / 100
+          : undefined;
+        // Field CLS (already 0-1 scale, but stored as integer like 0 = 0.00)
+        const fieldCls = fieldMetrics["CUMULATIVE_LAYOUT_SHIFT_SCORE"]?.percentile != null
+          ? Math.round(fieldMetrics["CUMULATIVE_LAYOUT_SHIFT_SCORE"].percentile) / 100
+          : undefined;
+
+        // INP - prefer field data (lab doesn't have it usually)
+        const labInp = auds["interaction-to-next-paint"]?.numericValue != null
+          ? Math.round(auds["interaction-to-next-paint"].numericValue)
+          : undefined;
+        const fieldInp = fieldMetrics["INTERACTION_TO_NEXT_PAINT"]?.percentile != null
+          ? fieldMetrics["INTERACTION_TO_NEXT_PAINT"].percentile
+          : undefined;
+
+        // FCP
+        const labFcp = auds["first-contentful-paint"]?.numericValue
+          ? Math.round((auds["first-contentful-paint"].numericValue / 1000) * 10) / 10
+          : undefined;
+        const fieldFcp = fieldMetrics["FIRST_CONTENTFUL_PAINT_MS"]?.percentile
+          ? Math.round((fieldMetrics["FIRST_CONTENTFUL_PAINT_MS"].percentile / 1000) * 10) / 10
+          : undefined;
+
+        // TBT (lab only, ms)
+        const tbt = auds["total-blocking-time"]?.numericValue != null
+          ? Math.round(auds["total-blocking-time"].numericValue)
+          : undefined;
+
+        // Speed Index (lab only, ms -> seconds)
+        const si = auds["speed-index"]?.numericValue
+          ? Math.round((auds["speed-index"].numericValue / 1000) * 10) / 10
+          : undefined;
+
         lighthouseData = {
-          lcp: auds["largest-contentful-paint"]?.numericValue
-            ? Math.round((auds["largest-contentful-paint"].numericValue / 1000) * 10) / 10
-            : undefined,
-          cls: auds["cumulative-layout-shift"]?.numericValue != null
-            ? Math.round(auds["cumulative-layout-shift"].numericValue * 100) / 100
-            : undefined,
-          inp: auds["interaction-to-next-paint"]?.numericValue != null
-            ? Math.round(auds["interaction-to-next-paint"].numericValue)
-            : undefined,
+          // Use field data when available, fallback to lab
+          lcp: fieldLcp ?? labLcp,
+          cls: fieldCls ?? labCls,
+          inp: fieldInp ?? labInp,
+          fcp: fieldFcp ?? labFcp,
+          tbt,
+          si,
           performanceScore: cats.performance?.score ?? undefined,
           seoScore: cats.seo?.score ?? undefined,
           accessibilityScore: cats.accessibility?.score ?? undefined,

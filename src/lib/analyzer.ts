@@ -11,6 +11,9 @@ interface LighthouseData {
   lcp?: number;
   cls?: number;
   inp?: number;
+  fcp?: number;
+  tbt?: number;
+  si?: number;
   performanceScore?: number;
   seoScore?: number;
   accessibilityScore?: number;
@@ -33,7 +36,7 @@ export interface AnalysisResult {
     icon: string;
   }[];
   issues: AuditIssue[];
-  vitals: { lcp: number | null; cls: number | null; inp: number | null };
+  vitals: { lcp: number | null; cls: number | null; inp: number | null; fcp: number | null; tbt: number | null; si: number | null };
   summary: string;
 }
 
@@ -652,6 +655,9 @@ export function analyzeWebsite(input: AnalysisInput): AnalysisResult {
       lcp: lighthouseData?.lcp ?? null,
       cls: lighthouseData?.cls ?? null,
       inp: lighthouseData?.inp ?? null,
+      fcp: lighthouseData?.fcp ?? null,
+      tbt: lighthouseData?.tbt ?? null,
+      si: lighthouseData?.si ?? null,
     },
     summary,
   };

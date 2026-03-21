@@ -23,6 +23,9 @@ export interface CoreWebVitals {
   lcp: number | null;
   cls: number | null;
   inp: number | null;
+  fcp: number | null;
+  tbt: number | null;
+  si: number | null;
 }
 
 export interface CategoryScore {
