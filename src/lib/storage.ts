@@ -4,6 +4,9 @@ import path from "path";
 const DATA_DIR = path.join(process.cwd(), "data");
 const AUDITS_FILE = path.join(DATA_DIR, "audits.json");
 const LEADS_FILE = path.join(DATA_DIR, "leads.json");
+const API_USAGE_FILE = path.join(DATA_DIR, "api-usage.json");
+
+const MONTHLY_API_LIMIT = 900;
 
 function ensureDataDir() {
   if (!fs.existsSync(DATA_DIR)) {
@@ -130,6 +133,54 @@ export function updateLead(id: string, updates: Partial<StoredLead>) {
     leads[index] = { ...leads[index], ...updates };
     writeJSON(LEADS_FILE, leads);
   }
+}
+
+// ---- API USAGE ----
+
+interface ApiUsage {
+  month: string; // "2026-03"
+  count: number;
+}
+
+function getCurrentMonth(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function getApiUsage(): ApiUsage {
+  ensureDataDir();
+  if (!fs.existsSync(API_USAGE_FILE)) return { month: getCurrentMonth(), count: 0 };
+  const data = JSON.parse(fs.readFileSync(API_USAGE_FILE, "utf-8")) as ApiUsage;
+  // Reset if new month
+  if (data.month !== getCurrentMonth()) {
+    return { month: getCurrentMonth(), count: 0 };
+  }
+  return data;
+}
+
+function saveApiUsage(usage: ApiUsage) {
+  ensureDataDir();
+  fs.writeFileSync(API_USAGE_FILE, JSON.stringify(usage, null, 2));
+}
+
+export function checkApiLimit(): { allowed: boolean; remaining: number; used: number; limit: number } {
+  const usage = getApiUsage();
+  return {
+    allowed: usage.count < MONTHLY_API_LIMIT,
+    remaining: Math.max(0, MONTHLY_API_LIMIT - usage.count),
+    used: usage.count,
+    limit: MONTHLY_API_LIMIT,
+  };
+}
+
+export function incrementApiUsage(count: number = 1): { allowed: boolean; remaining: number } {
+  const usage = getApiUsage();
+  if (usage.count + count > MONTHLY_API_LIMIT) {
+    return { allowed: false, remaining: Math.max(0, MONTHLY_API_LIMIT - usage.count) };
+  }
+  usage.count += count;
+  saveApiUsage(usage);
+  return { allowed: true, remaining: MONTHLY_API_LIMIT - usage.count };
 }
 
 // ---- HELPERS ----

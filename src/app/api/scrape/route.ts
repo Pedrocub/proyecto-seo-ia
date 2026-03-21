@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { addLeads, type StoredLead } from "@/lib/storage";
+import { addLeads, checkApiLimit, incrementApiUsage, type StoredLead } from "@/lib/storage";
 
 interface PlaceResult {
   businessName: string;
@@ -20,6 +20,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: "query y city son requeridos" },
         { status: 400 }
+      );
+    }
+
+    // Check API usage limit (900/month)
+    const usage = checkApiLimit();
+    if (!usage.allowed) {
+      return NextResponse.json(
+        { error: `Límite mensual de API alcanzado (${usage.limit}). Quedan ${usage.remaining} consultas. Se reinicia el próximo mes.`, used: usage.used, limit: usage.limit },
+        { status: 429 }
       );
     }
 
@@ -70,11 +79,20 @@ export async function POST(req: NextRequest) {
 
     addLeads(newLeads);
 
+    // Count API calls: 1 text search + 1 details per result
+    const apiCalls = source === "google_places" ? 1 + results.length : 0;
+    if (apiCalls > 0) {
+      incrementApiUsage(apiCalls);
+    }
+
+    const currentUsage = checkApiLimit();
+
     return NextResponse.json({
       success: true,
       source,
       count: results.length,
       leads: newLeads,
+      apiUsage: { used: currentUsage.used, remaining: currentUsage.remaining, limit: currentUsage.limit },
     });
   } catch (error) {
     return NextResponse.json(
